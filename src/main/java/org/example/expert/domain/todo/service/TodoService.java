@@ -17,6 +17,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -79,5 +83,37 @@ public class TodoService {
                 todo.getCreatedAt(),
                 todo.getModifiedAt()
         );
+    }
+
+    public List<TodoResponse> searchTodos(String weather, LocalDateTime startDate, LocalDateTime endDate) {
+        List<Todo> todos;
+
+        // 조건에 따라 다른 쿼리 호출
+        if (weather != null && startDate != null && endDate != null) {
+            // weather + 기간 검색
+             todos = todoRepository.findByWeatherAndModifiedAtBetween(weather, startDate, endDate);
+        } else if (weather != null) {
+            // weather 만 검색
+            todos = todoRepository.findByWeather(weather);
+        } else if (startDate != null && endDate != null) {
+            // 기간만 검색
+            todos = todoRepository.findByModifiedAtBetween(startDate, endDate);
+        } else {
+            // 조건 없으면 전체 조회
+            todos = todoRepository.findAllByOrderByModifiedAtDesc(PageRequest.of(0, 100)).getContent();
+        }
+
+        // Todo -> TodoResponse 변환
+        return todos.stream()
+                .map(todo -> new TodoResponse(
+                        todo.getId(),
+                        todo.getTitle(),
+                        todo.getContents(),
+                        todo.getWeather(),
+                        new UserResponse(todo.getUser().getId(), todo.getUser().getEmail()),
+                        todo.getCreatedAt(),
+                        todo.getModifiedAt()
+                ))
+                .collect(Collectors.toList());
     }
 }
