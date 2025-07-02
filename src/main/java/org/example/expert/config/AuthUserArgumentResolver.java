@@ -42,6 +42,11 @@ public class AuthUserArgumentResolver implements HandlerMethodArgumentResolver {
         UserRole userRole = UserRole.of((String) request.getAttribute("userRole"));
         String nickname = (String) request.getAttribute("nickname");
 
+        // 필수 정보가 없으면 인증 실패로 처리
+        if (userId == null || email == null || userRole == null) {
+            throw new AuthException("인증 정보가 없습니다.");
+        }
+
         return new AuthUser(userId, email, userRole, nickname);
     }
 }
