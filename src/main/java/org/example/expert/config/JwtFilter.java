@@ -36,45 +36,35 @@ public class JwtFilter implements Filter {
         HttpServletRequest httpRequest = (HttpServletRequest) request;
         HttpServletResponse httpResponse = (HttpServletResponse) response;
 
-        String url = httpRequest.getRequestURI();
+        String bearerJwt = httpRequest.getHeader("Authorization");
 
-        if (url.startsWith("/auth")) {
+        if (bearerJwt == null) {
+            // 토큰이 없으면 SecurityConfig에서 판단
             chain.doFilter(request, response);
             return;
         }
 
-        String bearerJwt = httpRequest.getHeader("Authorization");
-
-        if (bearerJwt == null) {
-            // 토큰이 없는 경우 400을 반환합니다.
-            httpResponse.sendError(HttpServletResponse.SC_BAD_REQUEST, "JWT 토큰이 필요합니다.");
-            return;
-        }
-
-        String jwt = jwtUtil.substringToken(bearerJwt);
-
         try {
+            String jwt = jwtUtil.substringToken(bearerJwt);
             // JWT 유효성 검사와 claims 추출
             Claims claims = jwtUtil.extractClaims(jwt);
-            if (claims == null) {
-                httpResponse.sendError(HttpServletResponse.SC_BAD_REQUEST, "잘못된 JWT 토큰입니다.");
-                return;
+
+            if (claims != null) {
+                UserRole userRole = UserRole.valueOf(claims.get("userRole", String.class));
+
+                List<SimpleGrantedAuthority> authorities = List.of(
+                        new SimpleGrantedAuthority("ROLE_" + userRole.name())
+                );
+
+                UsernamePasswordAuthenticationToken authentication =
+                        new UsernamePasswordAuthenticationToken(claims.getSubject(), null, authorities);
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+
+                httpRequest.setAttribute("userId", Long.parseLong(claims.getSubject()));
+                httpRequest.setAttribute("email", claims.get("email"));
+                httpRequest.setAttribute("userRole", claims.get("userRole"));
+                httpRequest.setAttribute("nickname", claims.get("nickname"));
             }
-
-            UserRole userRole = UserRole.valueOf(claims.get("userRole", String.class));
-
-            List<SimpleGrantedAuthority> authorities = List.of(
-                    new SimpleGrantedAuthority("ROLE_" + userRole.name())
-            );
-
-            UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(claims.getSubject(), null, authorities);
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-
-            httpRequest.setAttribute("userId", Long.parseLong(claims.getSubject()));
-            httpRequest.setAttribute("email", claims.get("email"));
-            httpRequest.setAttribute("userRole", claims.get("userRole"));
-            httpRequest.setAttribute("nickname", claims.get("nickname"));
 
             chain.doFilter(request, response);
         } catch (SecurityException | MalformedJwtException e) {
