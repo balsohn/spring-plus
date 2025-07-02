@@ -9,6 +9,7 @@ import org.example.expert.domain.user.entity.User;
 import org.example.expert.domain.user.repository.UserRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 @Service
 @RequiredArgsConstructor
@@ -17,6 +18,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final S3Service s3Service;
 
     public UserResponse getUser(long userId) {
         User user = userRepository.findById(userId).orElseThrow(() -> new InvalidRequestException("User not found"));
@@ -39,6 +41,34 @@ public class UserService {
         }
 
         user.changePassword(passwordEncoder.encode(userChangePasswordRequest.getNewPassword()));
+    }
+
+    @Transactional
+    public String uploadProfileImage(Long userId, MultipartFile file) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new InvalidRequestException("User not found"));
+
+        // 기존 프로필 이미지가 있다면 삭제
+        if (user.getProfileImageUrl() != null) {
+            s3Service.deleteProfileImage(user.getProfileImageUrl());
+        }
+
+        // 새 이미지 업로드
+        String imageUrl = s3Service.uploadProfileImage(file, userId);
+        user.updateProfileImage(imageUrl);
+
+        return imageUrl;
+    }
+
+    @Transactional
+    public void deleteProfileImage(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new InvalidRequestException("User not found"));
+
+        if (user.getProfileImageUrl() != null)  {
+            s3Service.deleteProfileImage(user.getProfileImageUrl());
+            user.updateProfileImage(null);
+        }
     }
 
     private static void validateNewPassword(UserChangePasswordRequest userChangePasswordRequest) {

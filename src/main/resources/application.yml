@@ -17,6 +17,26 @@ spring:
       hibernate:
         format_sql: true
 
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
   h2:
     console:
       enabled: true
+
+cloud:
+  aws:
+    region:
+      static: ${AWS_REGION:ap-northeast-2}
+    s3:
+      bucket-name: ${S3_BUCKET_NAME:spring-plus-profile-images}
+    stack:
+      auto: false
+
+logging:
+  level:
+    org.springframework.security: ${LOG_LEVEL:DEBUG}
+    org.example.expert: ${LOG_LEVEL:DEBUG}
+    com.amazonaws: WARN
