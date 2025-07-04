@@ -124,4 +124,54 @@ class UserDataProcessingTest {
             log.info("=== 10만건 종료 ===");
         }
     }
+
+    @Test
+    void 검색_성능_비교_테스트() {
+        log.info("=== 검색 성능 비교 테스트 시작 ===");
+
+        // 전체 데이터 수 확인
+        long totalUsers = userRepository.count();
+        log.info("현재 전체 사용자 수: {}", totalUsers);
+
+        if (totalUsers < 1000) {
+            log.warn("테스트용 데이터가 부족합니다.");
+            return;
+        }
+
+        // 테스트용 닉네임 찾기
+        List<User> sampleUsers = userRepository.findAll().stream().limit(5).toList();
+
+        for (User user : sampleUsers) {
+            String testNickname = user.getNickname();
+            log.info("\n--- 테스트 닉네임: {}---", testNickname);
+
+            // 정확한 매칭 검색
+            long start1 = System.currentTimeMillis();
+            Page<UserSearchResponse> exactResult = userSearchService.searchUsersByNickname(testNickname, 1, 10);
+            long end1 = System.currentTimeMillis();
+
+            // LIKE 검색
+            String partNickname = testNickname.substring(0, Math.min(8, testNickname.length()));
+            long start2 = System.currentTimeMillis();
+            Page<UserSearchResponse> likeResult = userSearchService.searchUsersByNicknameLike(partNickname, 1, 10);
+            long end2 = System.currentTimeMillis();
+
+            // 두번째 정확한 검색
+            long start3 = System.currentTimeMillis();
+            Page<UserSearchResponse> exactResult2 = userSearchService.searchUsersByNickname(testNickname, 1, 10);
+            long end3 = System.currentTimeMillis();
+
+            log.info("정확한 검색 (첫번째): {}ms, 결과: {}건", end1 - start1, exactResult.getTotalElements());
+            log.info("LIKE 검색: {}ms, 결과: {}건", end2 - start2, likeResult.getTotalElements());
+            log.info("정확한 검색 (두번째): {}ms, 결과: {}건", end3 - start3, exactResult2.getTotalElements());
+
+            // 성능 개선율 계산
+            if (end2 - start2 > 0) {
+                double improvement = ((double)(end2 - start2) - (end1 - start1)) / (end2 - start2) * 100;
+                log.info("성능 개선율: {}%", String.format("%.1f", improvement));
+            }
+
+            log.info("=== 종료 ===");
+        }
+    }
 }

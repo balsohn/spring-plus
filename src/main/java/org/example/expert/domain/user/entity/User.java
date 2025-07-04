@@ -20,6 +20,7 @@ public class User extends Timestamped {
     private String password;
     @Enumerated(EnumType.STRING)
     private UserRole userRole;
+    @Column(length = 50)
     private String nickname;
     private String profileImageUrl;
 
