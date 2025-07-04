@@ -8,6 +8,7 @@ group = 'org.example'
 version = '0.0.1-SNAPSHOT'
 
 java {
+    sourceCompatibility = '17'
     toolchain {
         languageVersion = JavaLanguageVersion.of(17)
     }
@@ -30,6 +31,7 @@ dependencies {
     compileOnly 'org.projectlombok:lombok'
     runtimeOnly 'com.h2database:h2'
     runtimeOnly 'com.mysql:mysql-connector-j'
+    testCompileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -53,6 +55,9 @@ dependencies {
 
     // AWS S3
     implementation 'org.springframework.cloud:spring-cloud-starter-aws:2.2.6.RELEASE'
+
+    // Cache (캐시 성능 최적화)
+    implementation 'org.springframework.boot:spring-boot-starter-cache'
 }
 
 tasks.named('test') {
