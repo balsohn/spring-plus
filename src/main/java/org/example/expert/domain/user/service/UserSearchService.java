@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.example.expert.domain.user.dto.response.UserSearchResponse;
 import org.example.expert.domain.user.entity.User;
 import org.example.expert.domain.user.repository.UserRepository;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,7 @@ public class UserSearchService {
 
     private final UserRepository userRepository;
 
+    @Cacheable(value = "userSearch", key = "#nickname + '_' + #page + '_' + #size")
     public Page<UserSearchResponse> searchUsersByNickname(String nickname, int page, int size) {
         long startTime = System.currentTimeMillis();
 

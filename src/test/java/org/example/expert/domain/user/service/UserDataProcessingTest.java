@@ -183,7 +183,7 @@ class UserDataProcessingTest {
     @Test
     @Transactional
     @Rollback(value = false)
-    void step5_병렬_처리_100만건_생성_테스트() {
+    void 병렬_처리_100만건_생성_테스트() {
         log.info("=== 병렬 처리로 100만건 데이터 생성 시작 ===");
 
         int totalUsers = 1000000;  // 100만건
@@ -252,8 +252,174 @@ class UserDataProcessingTest {
         log.info("=== 병렬 데이터 생성 완료 ===");
     }
 
+    @Test
+    void 캐시_성능_테스트() {
+        log.info("==== 캐시 성능 테스트 시작 ====");
+
+        // 전체 데이터 수 확인
+        long totalUsers = userRepository.count();
+        log.info("현재 전체 사용자 수: {}", totalUsers);
+
+        if (totalUsers < 100000) {
+            log.warn("테스트용 데이터가 부족합니다.");
+            return;
+        }
+
+        // 테스트용 닉네임 선택
+        List<User> sampleUsers = userRepository.findAll().stream().limit(3).toList();
+
+        for (User user : sampleUsers) {
+            String testNickname = user.getNickname();
+            log.info("\n --- 캐시 테스트 닉네임: {} ---", testNickname);
+
+            // 첫번째 검색 (캐시미스)
+            long start1 = System.currentTimeMillis();
+            Page<UserSearchResponse> result1 = userSearchService.searchUsersByNickname(testNickname, 1, 10);
+            long end1 = System.currentTimeMillis();
+            log.info("첫 번째 검색 (캐시 미스): {}ms, 결과: {} 건", end1 - start1, result1.getTotalElements());
+
+            // 두번째 검색 (캐시 히트)
+            long start2 = System.currentTimeMillis();
+            Page<UserSearchResponse> result2 = userSearchService.searchUsersByNickname(testNickname, 1, 10);
+            long end2 = System.currentTimeMillis();
+            log.info("두 번째 검색 (캐시 히트): {}ms, 결과: {} 건", end2 - start2, result2.getTotalElements());
+
+            // 세번째 검색 (캐시 히트)
+            long start3 = System.currentTimeMillis();
+            Page<UserSearchResponse> result3 = userSearchService.searchUsersByNickname(testNickname, 1, 10);
+            long end3 = System.currentTimeMillis();
+            log.info("세 번째 검색 (캐시 히트): {}ms, 결과: {} 건", end3 - start3, result3.getTotalElements());
+
+            // 캐시 효과 계산
+            if (end1 - start1 > 0) {
+                double cacheImprovement = ((double)(end1 - start1) - (end2 - start2)) / (end1 - start1) * 100;
+                log.info("캐시 성능 개선율: {}%", String.format("%.1f", cacheImprovement));
+            }
+        }
+
+        log.info("=== 캐시 테스트 완료 ===");
+    }
+
+    @Test
+    void 최종_성능_종합_비교_테스트() {
+        log.info("==== 최종 성능 종합 비교 테스트 시작 ====");
+
+        long totalUsers = userRepository.count();
+        log.info("전체 사용자 수: {}", totalUsers);
+
+        if (totalUsers < 100000) {
+            log.warn("충분한 데이터가 없습니다.");
+            return;
+        }
+
+        // 다양한 패턴으로 검색 성능 테스트
+        List<User> testUsers = userRepository.findAll().stream().limit(5).toList();
+
+        log.info("\n=== 성능 비교 결과 ===");
+        log.info("검색방법\t\t\t평균시간(ms)\t최대시간(ms)\t최소시간(ms)");
+        log.info("─".repeat(70));
+
+        // 각 검색 방법별 성능 측정
+        long[] exactTimes = new long[testUsers.size()];
+        long[] likeTimes = new long[testUsers.size()];
+        long[] cachedTimes = new long[testUsers.size()];
+
+        for (int i = 0; i < testUsers.size(); i++) {
+            User user = testUsers.get(i);
+            String nickname = user.getNickname();
+            String partialNickname = nickname.substring(0, Math.min(8, nickname.length()));
+
+            // 정확한 검색 (첫 번째 - 캐시 미스)
+            long start = System.currentTimeMillis();
+            userSearchService.searchUsersByNickname(nickname, 1, 10);
+            exactTimes[i] = System.currentTimeMillis() - start;
+
+            // LIKE 검색
+            start = System.currentTimeMillis();
+            userSearchService.searchUsersByNicknameLike(partialNickname, 1, 10);
+            likeTimes[i] = System.currentTimeMillis() - start;
+
+            // 캐시된 검색 (두 번째 호출)
+            start = System.currentTimeMillis();
+            userSearchService.searchUsersByNickname(nickname, 1, 10);
+            cachedTimes[i] = System.currentTimeMillis() - start;
+        }
+
+        // 통계 계산 및 출력
+        printPerformanceStats("정확한 검색 (인덱스)", exactTimes);
+        printPerformanceStats("LIKE 검색 (풀스캔)", likeTimes);
+        printPerformanceStats("캐시된 검색", cachedTimes);
+
+        log.info("─".repeat(70));
+        log.info("=== 최종 성능 테스트 완료 ===");
+    }
+
+    @Test
+    void 동시_접속자_성능_테스트() {
+        log.info("=== 동시 접속자 성능 테스트 시작 ===");
+
+        if (userRepository.count() < 100000) {
+            log.warn("충분한 데이터가 없습니다.");
+            return;
+        }
+
+        // 테스트용 닉네임 준비
+        String testNickname = userRepository.findAll().stream()
+                .findFirst()
+                .map(User::getNickname)
+                .orElse("testuser_12345");
+
+        // 10명 동시 접속 시뮬레이션
+        ExecutorService executor = Executors.newFixedThreadPool(10);
+        List<CompletableFuture<Long>> futures = new ArrayList<>();
+
+        long testStartTime = System.currentTimeMillis();
+
+        for (int i = 0; i < 10; i++) {
+            futures.add(CompletableFuture.supplyAsync(() -> {
+                long start = System.currentTimeMillis();
+                userSearchService.searchUsersByNickname(testNickname, 1, 10);
+                return System.currentTimeMillis() - start;
+            }, executor));
+        }
+
+        List<Long> times = futures.stream()
+                .map(CompletableFuture::join)
+                .toList();
+
+        long testEndTime = System.currentTimeMillis();
+
+        double avgTime = times.stream().mapToLong(Long::longValue).average().orElse(0);
+        long maxTime = times.stream().mapToLong(Long::longValue).max().orElse(0);
+        long minTime = times.stream().mapToLong(Long::longValue).min().orElse(0);
+
+        log.info("동시 10명 접속 테스트 결과:");
+        log.info("전체 소요시간: {}ms", testEndTime - testStartTime);
+        log.info("평균 응답시간: {}ms", String.format("%.1f", avgTime));
+        log.info("최대 응답시간: {}ms", maxTime);
+        log.info("최소 응답시간: {}ms", minTime);
+
+        executor.shutdown();
+        log.info("=== 동시 접속자 테스트 완료 ===");
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void saveUsersInNewTransaction(List<User> users) {
         userRepository.saveAll(users);
+    }
+
+    private void printPerformanceStats(String method, long[] times) {
+        if (times.length == 0) return;
+
+        long sum = 0, max = times[0], min = times[0];
+        for (long time : times) {
+            sum += time;
+            max = Math.max(max, time);
+            min = Math.min(min, time);
+        }
+
+        double avg = (double) sum / times.length;
+        log.info("{}\t\t{}\t\t{}\t\t{}", method,
+                String.format("%.1f", avg), max, min);
     }
 }
