@@ -1,5 +1,6 @@
 package org.example.expert.domain.user.service;
 
+import com.amazonaws.services.s3.transfer.internal.future.CompletedFuture;
 import lombok.extern.slf4j.Slf4j;
 import org.example.expert.domain.user.dto.response.UserSearchResponse;
 import org.example.expert.domain.user.entity.User;
@@ -10,11 +11,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.Page;
 import org.springframework.test.annotation.Rollback;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Slf4j
 @SpringBootTest
@@ -173,5 +178,82 @@ class UserDataProcessingTest {
 
             log.info("=== 종료 ===");
         }
+    }
+
+    @Test
+    @Transactional
+    @Rollback(value = false)
+    void step5_병렬_처리_100만건_생성_테스트() {
+        log.info("=== 병렬 처리로 100만건 데이터 생성 시작 ===");
+
+        int totalUsers = 1000000;  // 100만건
+        int batchSize = 10000;     // 배치 크기 증가
+        int batches = totalUsers / batchSize;
+        int threadCount = 5;       // 스레드 수
+
+        long totalStartTime = System.currentTimeMillis();
+
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+
+        for (int i = 0; i < batches; i++) {
+            final int batchIndex = i;
+
+            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+                try {
+                    long batchStartTime = System.currentTimeMillis();
+
+                    List<User> users = new ArrayList<>();
+
+                    for (int j = 0; j < batchSize; j++) {
+                        String uniqueId = UUID.randomUUID().toString().substring(0, 8);
+                        String nickname = "parallel_" + uniqueId;
+                        String email = "parallel" + (batchIndex * batchSize + j) + "@example.com";
+
+                        User user = new User(email, "password123", UserRole.USER, nickname);
+                        users.add(user);
+                    }
+
+                    // 각 스레드에서 별도의 트랜잭션으로 저장
+                    saveUsersInNewTransaction(users);
+
+                    long batchEndTime = System.currentTimeMillis();
+
+                    if ((batchIndex + 1) % 10 == 0) {
+                        log.info("병렬 배치 진행: {}/{} 완료, 배치 소요시간: {}ms",
+                                batchIndex + 1, batches, batchEndTime - batchStartTime);
+                    }
+
+                } catch (Exception e) {
+                    log.error("배치 {} 처리 중 오류: {}", batchIndex, e.getMessage());
+                }
+            }, executor);
+
+            futures.add(future);
+        }
+
+        // 모든 배치 완료 대기
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        long totalEndTime = System.currentTimeMillis();
+
+        // 결과 확인
+        long finalCount = userRepository.count();
+        log.info("100만건 병렬 처리 완료!");
+        log.info("총 소요시간: {}ms ({}분 {}초)",
+                totalEndTime - totalStartTime,
+                (totalEndTime - totalStartTime) / 60000,
+                ((totalEndTime - totalStartTime) % 60000) / 1000);
+        log.info("전체 사용자 수: {}", finalCount);
+        log.info("평균 배치 처리 시간: {}ms", (totalEndTime - totalStartTime) / batches);
+        log.info("초당 처리량: 약 {} 건/초", totalUsers * 1000L / (totalEndTime - totalStartTime));
+
+        executor.shutdown();
+        log.info("=== 병렬 데이터 생성 완료 ===");
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void saveUsersInNewTransaction(List<User> users) {
+        userRepository.saveAll(users);
     }
 }
